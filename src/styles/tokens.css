@@ -1,0 +1,37 @@
+:root {
+  /* Colors */
+  --color-bg: #1C1C1E;
+  --color-card: #2C2C2E;
+  --color-mid: #3A3A3C;
+  --color-grey: #8E8E93;
+  --color-yellow: #F5C842;
+  --color-green-card: #C8E6A0;
+  --color-amber-card: #F5E6A0;
+  --color-red-card: #F5A0A0;
+  --color-purple-card: #E8C0F0;
+  --color-white: #FFFFFF;
+  --color-text-dark: #1C1C1E;
+  --color-danger: #F05050;
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+
+  /* Radius */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+
+  /* Typography */
+  --font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* Safe areas */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
