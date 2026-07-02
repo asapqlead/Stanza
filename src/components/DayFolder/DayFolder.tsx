@@ -1,310 +1,420 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { X } from 'lucide-react';
+import { useState } from 'react';
+import { Plus, ChevronDown } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
-import { createTask } from '../../utils/taskMutations';
-import { supabase } from '../../lib/supabase';
-import type { Task, UrgencyLevel } from '../../types/database.types';
-import { useHaptic } from '../../hooks/useHaptic';
+import { useSwipe } from '../../hooks/useSwipe';
+import { TaskCard, TaskCardStacked } from '../TaskCard/TaskCard';
+import { nextDay, prevDay, formatWeekday, formatDayNum, formatMonth } from '../../utils/date';
+import { pendingTasks, completedTasks } from '../../utils/sort';
+import type { Task } from '../../types/database.types';
 
-const schema = z.object({
-  title: z.string().min(1, 'Title is required').max(80),
-  description: z.string().max(500).optional(),
-  due_date: z.string(),
-  due_time: z.string().optional(),
-  urgency: z.enum(['Low', 'Medium', 'High', 'Blocked']),
-});
-
-type FormData = z.infer<typeof schema>;
-
-const URGENCY_OPTIONS: UrgencyLevel[] = ['Low', 'Medium', 'High', 'Blocked'];
-const URGENCY_COLORS: Record<UrgencyLevel, string> = {
-  Low: 'var(--color-green-card)',
-  Medium: 'var(--color-amber-card)',
-  High: 'var(--color-red-card)',
-  Blocked: 'var(--color-purple-card)',
-};
-
-interface AddTaskSheetProps {
-  /** Called immediately with a temp task so the card appears on the fly, before the insert resolves. */
-  onOptimisticAdd: (task: Task) => void;
+interface TaskDetailSheetProps {
+  task: Task;
+  onClose: () => void;
+  onDelete: () => void;
 }
 
-export const AddTaskSheet = ({ onOptimisticAdd }: AddTaskSheetProps) => {
-  const { addTaskOpen, setAddTaskOpen, activeDate } = useAppStore();
-  const { light } = useHaptic();
-
-  const { register, handleSubmit, reset, watch, setValue, formState: { errors, isSubmitting } } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      urgency: 'Medium',
-      due_date: activeDate,
-    },
-  });
-
-  const selectedUrgency = watch('urgency');
-
-  const onSubmit = async (data: FormData) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    // Instant local card so the sheet closes and the new task appears immediately.
-    const tempTask: Task = {
-      id: `temp-${Date.now()}`,
-      user_id: user.id,
-      title: data.title,
-      description: data.description ?? null,
-      urgency: data.urgency as UrgencyLevel,
-      due_date: data.due_date,
-      due_time: data.due_time ?? null,
-      completed: false,
-      completed_at: null,
-      sort_order: 9999,
-      created_at: new Date().toISOString(),
-    };
-
-    onOptimisticAdd(tempTask);
-    light();
-    reset({ urgency: 'Medium', due_date: activeDate });
-    setAddTaskOpen(false);
-
-    // Fire-and-forget — Realtime INSERT event will replace the temp row with the real one.
-    createTask({
-      user_id: user.id,
-      title: data.title,
-      description: data.description ?? null,
-      urgency: data.urgency as UrgencyLevel,
-      due_date: data.due_date,
-      due_time: data.due_time ?? null,
-      sort_order: 0,
-    });
-  };
-
-  const handleClose = () => {
-    reset({ urgency: 'Medium', due_date: activeDate });
-    setAddTaskOpen(false);
-  };
-
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    background: 'var(--color-mid)',
-    border: '1.5px solid transparent',
-    borderRadius: 'var(--radius-md)',
-    padding: '12px 14px',
-    fontSize: 15,
-    color: 'var(--color-white)',
-    outline: 'none',
-    transition: 'border-color 0.2s',
-    fontFamily: 'var(--font-family)',
+const TaskDetailSheet = ({ task, onClose, onDelete }: TaskDetailSheetProps) => {
+  const CARD_COLORS: Record<string, string> = {
+    Low: 'var(--color-green-card)',
+    Medium: 'var(--color-amber-card)',
+    High: 'var(--color-red-card)',
+    Blocked: 'var(--color-purple-card)',
   };
 
   return (
-    <AnimatePresence>
-      {addTaskOpen && (
-        <>
-          {/* Scrim */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            onClick={handleClose}
-            style={{
-              position: 'fixed', inset: 0,
-              background: 'rgba(0,0,0,0.4)',
-              zIndex: 150,
-            }}
-          />
+    <motion.div
+      initial={{ y: '100%' }}
+      animate={{ y: 0 }}
+      exit={{ y: '100%' }}
+      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        top: 'auto',
+        bottom: 0,
+        background: 'var(--color-card)',
+        borderRadius: '20px 20px 0 0',
+        padding: 'var(--space-xl)',
+        paddingBottom: `calc(var(--safe-bottom) + 32px)`,
+        zIndex: 200,
+        maxHeight: '80dvh',
+        overflowY: 'auto',
+      }}
+    >
+      {/* Drag handle */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+        <div style={{ width: 36, height: 4, background: 'var(--color-mid)', borderRadius: 2 }} />
+      </div>
 
-          {/* Sheet */}
-          <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring', stiffness: 280, damping: 28 }}
-            style={{
-              position: 'fixed',
-              bottom: 0,
-              left: 0,
-              right: 0,
-              background: 'var(--color-card)',
-              borderRadius: '20px 20px 0 0',
-              zIndex: 200,
-              maxHeight: '90dvh',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            {/* Header */}
+      {/* Priority badge */}
+      <div style={{
+        display: 'inline-block',
+        background: task.completed ? 'var(--color-mid)' : CARD_COLORS[task.urgency],
+        borderRadius: 'var(--radius-pill)',
+        padding: '4px 12px',
+        fontSize: 11,
+        fontWeight: 700,
+        color: task.completed ? 'var(--color-grey)' : 'var(--color-text-dark)',
+        letterSpacing: 0.5,
+        marginBottom: 12,
+      }}>
+        {task.urgency.toUpperCase()}
+      </div>
+
+      <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8, lineHeight: 1.3 }}>
+        {task.title}
+      </h2>
+
+      {task.description && (
+        <p style={{ fontSize: 14, color: 'var(--color-grey)', lineHeight: 1.6, marginBottom: 16 }}>
+          {task.description}
+        </p>
+      )}
+
+      <div style={{ display: 'flex', gap: 24, marginBottom: 24 }}>
+        {task.due_time && (
+          <div>
+            <span style={{ fontSize: 11, color: 'var(--color-grey)', display: 'block', marginBottom: 2 }}>TIME</span>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>{task.due_time.slice(0, 5)}</span>
+          </div>
+        )}
+        <div>
+          <span style={{ fontSize: 11, color: 'var(--color-grey)', display: 'block', marginBottom: 2 }}>STATUS</span>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>{task.completed ? 'Completed' : 'Pending'}</span>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10 }}>
+        <button
+          onClick={onClose}
+          style={{
+            flex: 1, height: 44, borderRadius: 'var(--radius-md)',
+            background: 'var(--color-mid)', border: 'none',
+            color: 'var(--color-white)', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+          }}
+        >
+          Close
+        </button>
+        <button
+          onClick={onDelete}
+          style={{
+            flex: 1, height: 44, borderRadius: 'var(--radius-md)',
+            background: 'rgba(240,80,80,0.15)', border: '1px solid rgba(240,80,80,0.3)',
+            color: '#F05050', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+          }}
+        >
+          Delete
+        </button>
+      </div>
+    </motion.div>
+  );
+};
+
+interface DayFolderProps {
+  tasks: Task[];
+  loading: boolean;
+  /** Called immediately for on-the-fly UI updates; network call happens separately. */
+  onToggleComplete: (taskId: string, completed: boolean) => void;
+  /** Called immediately for on-the-fly UI updates; network call happens separately. */
+  onRemove: (taskId: string) => void;
+}
+
+export const DayFolder = ({ tasks, loading, onToggleComplete, onRemove }: DayFolderProps) => {
+  const { activeDate, setActiveDate, folderExpanded, setFolderExpanded, setAddTaskOpen } = useAppStore();
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [direction, setDirection] = useState(0);
+
+  const pending = pendingTasks(tasks);
+  const completed = completedTasks(tasks);
+  const stackVisible = pending.slice(0, 3);
+  const overflowCount = Math.max(0, pending.length - 3);
+
+  const goNext = () => {
+    setDirection(1);
+    setActiveDate(nextDay(activeDate));
+    setFolderExpanded(false);
+  };
+
+  const goPrev = () => {
+    setDirection(-1);
+    setActiveDate(prevDay(activeDate));
+    setFolderExpanded(false);
+  };
+
+  const { onTouchStart, onTouchEnd } = useSwipe({
+    onSwipeLeft: goNext,
+    onSwipeRight: goPrev,
+  });
+
+  const handleDeleteTask = async () => {
+    if (!selectedTask) return;
+    const taskId = selectedTask.id;
+    onRemove(taskId); // instant local removal
+    setSelectedTask(null);
+    const { deleteTask } = await import('../../utils/taskMutations');
+    deleteTask(taskId); // fire-and-forget network call
+  };
+
+  return (
+    <>
+      <div
+        style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
+        {/* Large date display */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          padding: '20px var(--space-xl) 0',
+        }}>
+          <div>
             <div style={{
-              background: '#F05050',
-              borderRadius: '20px 20px 0 0',
-              padding: '16px var(--space-xl)',
+              fontSize: 72,
+              fontWeight: 700,
+              color: 'var(--color-white)',
+              lineHeight: 1,
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between',
-              flexShrink: 0,
+              gap: 12,
             }}>
-              <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-white)' }}>New Task</h2>
-              <button
-                onClick={handleClose}
-                aria-label="Close"
-                style={{
-                  width: 32, height: 32, borderRadius: '50%',
-                  background: 'rgba(255,255,255,0.2)', border: 'none',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  cursor: 'pointer',
-                }}
-              >
-                <X size={16} color="white" />
-              </button>
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.span
+                  key={activeDate + '-day'}
+                  initial={{ x: direction * 40, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: direction * -40, opacity: 0 }}
+                  transition={{ duration: 0.28, ease: [0.32, 0, 0.67, 0] }}
+                >
+                  {formatDayNum(activeDate)}
+                </motion.span>
+              </AnimatePresence>
+              {/* Yellow pill */}
+              <div style={{
+                background: 'var(--color-yellow)',
+                borderRadius: 'var(--radius-pill)',
+                padding: '4px 14px',
+                fontSize: 14,
+                fontWeight: 700,
+                color: 'var(--color-text-dark)',
+                marginBottom: 8,
+              }}>
+                {formatMonth(activeDate)}
+              </div>
             </div>
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.p
+                key={activeDate + '-weekday'}
+                initial={{ x: direction * 30, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: direction * -30, opacity: 0 }}
+                transition={{ duration: 0.28, ease: [0.32, 0, 0.67, 0] }}
+                style={{ fontSize: 14, color: 'var(--color-grey)', marginTop: 4, fontWeight: 500 }}
+              >
+                {formatWeekday(activeDate)}
+              </motion.p>
+            </AnimatePresence>
+          </div>
 
-            {/* Form */}
-            <form
-              onSubmit={handleSubmit(onSubmit)}
+          {/* Task count badge */}
+          {pending.length > 0 && (
+            <div style={{
+              background: 'var(--color-mid)',
+              borderRadius: 'var(--radius-pill)',
+              padding: '6px 14px',
+              marginBottom: 24,
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-grey)' }}>
+                {pending.length} task{pending.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Folder area */}
+        <div style={{ flex: 1, padding: '20px var(--space-xl)', overflow: 'hidden', position: 'relative' }}>
+          {loading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 40 }}>
+              <div style={{
+                width: 24, height: 24, border: '2px solid var(--color-mid)',
+                borderTopColor: 'var(--color-yellow)', borderRadius: '50%',
+                animation: 'spin 0.8s linear infinite',
+              }} />
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          ) : tasks.length === 0 ? (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
               style={{
-                padding: 'var(--space-xl)',
-                paddingBottom: `calc(var(--safe-bottom) + 24px)`,
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 14,
-                overflowY: 'auto',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingTop: 60,
+                gap: 12,
               }}
             >
-              {/* Title */}
-              <div>
-                <label htmlFor="task-title" style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-grey)', letterSpacing: 0.5, display: 'block', marginBottom: 6 }}>
-                  TASK TITLE *
-                </label>
-                <input
-                  id="task-title"
-                  {...register('title')}
-                  placeholder="e.g. Design Review"
-                  autoFocus
-                  style={{
-                    ...inputStyle,
-                    borderColor: errors.title ? 'var(--color-red-card)' : 'transparent',
-                  }}
-                  onFocus={e => e.target.style.borderColor = 'var(--color-yellow)'}
-                  onBlur={e => e.target.style.borderColor = errors.title ? 'var(--color-red-card)' : 'transparent'}
-                />
-                {errors.title && (
-                  <p role="alert" style={{ fontSize: 12, color: '#F05050', marginTop: 4 }}>{errors.title.message}</p>
-                )}
+              <div style={{
+                width: 60, height: 60, borderRadius: 'var(--radius-md)',
+                background: 'var(--color-card)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Plus size={28} color="var(--color-grey)" />
               </div>
-
-              {/* Description */}
-              <div>
-                <label htmlFor="task-desc" style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-grey)', letterSpacing: 0.5, display: 'block', marginBottom: 6 }}>
-                  DESCRIPTION
-                </label>
-                <textarea
-                  id="task-desc"
-                  {...register('description')}
-                  placeholder="Add description…"
-                  rows={3}
-                  style={{ ...inputStyle }}
-                  onFocus={e => (e.target as HTMLTextAreaElement).style.borderColor = 'var(--color-yellow)'}
-                  onBlur={e => (e.target as HTMLTextAreaElement).style.borderColor = 'transparent'}
-                />
-              </div>
-
-              {/* Due date + time row */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div>
-                  <label htmlFor="task-date" style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-grey)', letterSpacing: 0.5, display: 'block', marginBottom: 6 }}>
-                    DATE *
-                  </label>
-                  <input
-                    id="task-date"
-                    type="date"
-                    {...register('due_date')}
-                    style={{
-                      ...inputStyle,
-                      colorScheme: 'dark',
-                    }}
-                    onFocus={e => e.target.style.borderColor = 'var(--color-yellow)'}
-                    onBlur={e => e.target.style.borderColor = 'transparent'}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="task-time" style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-grey)', letterSpacing: 0.5, display: 'block', marginBottom: 6 }}>
-                    TIME
-                  </label>
-                  <input
-                    id="task-time"
-                    type="time"
-                    {...register('due_time')}
-                    style={{
-                      ...inputStyle,
-                      colorScheme: 'dark',
-                    }}
-                    onFocus={e => e.target.style.borderColor = 'var(--color-yellow)'}
-                    onBlur={e => e.target.style.borderColor = 'transparent'}
-                  />
-                </div>
-              </div>
-
-              {/* Priority */}
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-grey)', letterSpacing: 0.5, display: 'block', marginBottom: 8 }}>
-                  PRIORITY
-                </label>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {URGENCY_OPTIONS.map(u => (
-                    <button
-                      key={u}
-                      type="button"
-                      onClick={() => setValue('urgency', u)}
-                      style={{
-                        flex: 1,
-                        height: 36,
-                        borderRadius: 'var(--radius-pill)',
-                        border: selectedUrgency === u
-                          ? '2px solid var(--color-white)'
-                          : '2px solid transparent',
-                        background: URGENCY_COLORS[u],
-                        fontSize: 10,
-                        fontWeight: 700,
-                        color: 'var(--color-text-dark)',
-                        cursor: 'pointer',
-                        transition: 'border-color 0.15s',
-                        letterSpacing: 0.3,
-                      }}
-                    >
-                      {u.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Submit */}
-              <motion.button
-                type="submit"
-                disabled={isSubmitting}
-                whileTap={{ scale: 0.97 }}
+              <p style={{ fontSize: 15, color: 'var(--color-grey)', fontWeight: 500 }}>No tasks for today</p>
+              <button
+                onClick={() => setAddTaskOpen(true)}
                 style={{
-                  height: 52,
-                  background: isSubmitting ? 'var(--color-mid)' : 'var(--color-yellow)',
-                  border: 'none',
-                  borderRadius: 'var(--radius-pill)',
-                  fontSize: 16,
-                  fontWeight: 700,
-                  color: 'var(--color-text-dark)',
-                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                  marginTop: 4,
-                  transition: 'background 0.2s',
+                  background: 'var(--color-yellow)', border: 'none',
+                  borderRadius: 'var(--radius-pill)', padding: '10px 20px',
+                  fontSize: 14, fontWeight: 700, color: 'var(--color-text-dark)',
+                  cursor: 'pointer', marginTop: 4,
                 }}
               >
-                {isSubmitting ? 'Creating…' : 'Create Task'}
-              </motion.button>
-            </form>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+                Add a task
+              </button>
+            </motion.div>
+          ) : !folderExpanded ? (
+            /* Stacked view — reference: full front card + peeking cards + "+N" overflow badge */
+            <motion.div
+              style={{ position: 'relative', height: 260, cursor: 'pointer' }}
+              onClick={() => setFolderExpanded(true)}
+              aria-label={`${formatWeekday(activeDate)}, ${formatDayNum(activeDate)}, ${pending.length} tasks. Tap to expand.`}
+              role="button"
+            >
+              {stackVisible.map((task, i) => (
+                <TaskCardStacked
+                  key={task.id}
+                  task={task}
+                  index={i}
+                  total={stackVisible.length}
+                  overflowCount={overflowCount}
+                />
+              ))}
+
+              {/* Expand hint */}
+              <div style={{
+                position: 'absolute',
+                bottom: -32,
+                left: 0,
+                right: 0,
+                display: 'flex',
+                justifyContent: 'center',
+              }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  color: 'var(--color-grey)', fontSize: 12,
+                }}>
+                  <ChevronDown size={14} />
+                  <span>tap to expand</span>
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            /* Expanded list view */
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                overflowY: 'auto',
+                maxHeight: 'calc(100dvh - 260px)',
+                paddingBottom: 76,
+              }}
+            >
+              {/* Collapse button */}
+              <button
+                onClick={() => setFolderExpanded(false)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'var(--color-grey)', fontSize: 12, marginBottom: 4,
+                  padding: '4px 0',
+                }}
+              >
+                <ChevronDown size={14} style={{ transform: 'rotate(180deg)' }} />
+                <span>collapse</span>
+              </button>
+
+              <AnimatePresence>
+                {pending.map((task) => (
+                  <motion.div
+                    key={task.id}
+                    layout
+                    initial={{ scale: 0.95, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.95, opacity: 0 }}
+                    transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                  >
+                    <TaskCard
+                      task={task}
+                      onTap={() => setSelectedTask(task)}
+                      onToggleComplete={onToggleComplete}
+                    />
+                  </motion.div>
+                ))}
+
+                {completed.length > 0 && (
+                  <>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      margin: '8px 0 4px',
+                    }}>
+                      <div style={{ flex: 1, height: 1, background: 'var(--color-mid)' }} />
+                      <span style={{ fontSize: 11, color: 'var(--color-grey)', fontWeight: 500 }}>
+                        COMPLETED
+                      </span>
+                      <div style={{ flex: 1, height: 1, background: 'var(--color-mid)' }} />
+                    </div>
+                    {completed.map((task) => (
+                      <motion.div
+                        key={task.id}
+                        layout
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 0.6 }}
+                        exit={{ opacity: 0 }}
+                      >
+                        <TaskCard
+                          task={task}
+                          onTap={() => setSelectedTask(task)}
+                          onToggleComplete={onToggleComplete}
+                        />
+                      </motion.div>
+                    ))}
+                  </>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          )}
+        </div>
+      </div>
+
+      {/* Task detail sheet */}
+      <AnimatePresence>
+        {selectedTask && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedTask(null)}
+              style={{
+                position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 199,
+              }}
+            />
+            <TaskDetailSheet
+              task={selectedTask}
+              onClose={() => setSelectedTask(null)}
+              onDelete={handleDeleteTask}
+            />
+          </>
+        )}
+      </AnimatePresence>
+    </>
   );
 };

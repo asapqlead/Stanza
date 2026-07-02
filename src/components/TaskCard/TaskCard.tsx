@@ -42,7 +42,9 @@ export const TaskCard = ({ task, onTap, onToggleComplete, style }: TaskCardProps
       ? completeTask(task.id, task.due_date)
       : uncompleteTask(task.id);
 
-    request.finally(() => setCompleting(false));
+    // Supabase's PostgrestFilterBuilder is thenable but not typed as a real
+    // Promise, so .finally() isn't on its type — wrap it to get one.
+    Promise.resolve(request).finally(() => setCompleting(false));
   };
 
   return (
