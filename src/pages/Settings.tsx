@@ -62,7 +62,7 @@ export const Settings = () => {
       height: '100dvh',
       display: 'flex',
       flexDirection: 'column',
-      padding: `calc(var(--safe-top) + 20px) var(--space-xl) calc(var(--safe-bottom) + 100px)`,
+      padding: `calc(var(--safe-top) + 20px) var(--space-xl) calc(var(--safe-bottom) + 76px)`,
       overflowY: 'auto',
     }}>
       <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 28 }}>Settings</h1>

@@ -6,7 +6,7 @@ import { X } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { createTask } from '../../utils/taskMutations';
 import { supabase } from '../../lib/supabase';
-import type { UrgencyLevel } from '../../types/database.types';
+import type { Task, UrgencyLevel } from '../../types/database.types';
 import { useHaptic } from '../../hooks/useHaptic';
 
 const schema = z.object({
@@ -27,7 +27,12 @@ const URGENCY_COLORS: Record<UrgencyLevel, string> = {
   Blocked: 'var(--color-purple-card)',
 };
 
-export const AddTaskSheet = () => {
+interface AddTaskSheetProps {
+  /** Called immediately with a temp task so the card appears on the fly, before the insert resolves. */
+  onOptimisticAdd: (task: Task) => void;
+}
+
+export const AddTaskSheet = ({ onOptimisticAdd }: AddTaskSheetProps) => {
   const { addTaskOpen, setAddTaskOpen, activeDate } = useAppStore();
   const { light } = useHaptic();
 
@@ -45,7 +50,28 @@ export const AddTaskSheet = () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    await createTask({
+    // Instant local card so the sheet closes and the new task appears immediately.
+    const tempTask: Task = {
+      id: `temp-${Date.now()}`,
+      user_id: user.id,
+      title: data.title,
+      description: data.description ?? null,
+      urgency: data.urgency as UrgencyLevel,
+      due_date: data.due_date,
+      due_time: data.due_time ?? null,
+      completed: false,
+      completed_at: null,
+      sort_order: 9999,
+      created_at: new Date().toISOString(),
+    };
+
+    onOptimisticAdd(tempTask);
+    light();
+    reset({ urgency: 'Medium', due_date: activeDate });
+    setAddTaskOpen(false);
+
+    // Fire-and-forget — Realtime INSERT event will replace the temp row with the real one.
+    createTask({
       user_id: user.id,
       title: data.title,
       description: data.description ?? null,
@@ -54,10 +80,6 @@ export const AddTaskSheet = () => {
       due_time: data.due_time ?? null,
       sort_order: 0,
     });
-
-    light();
-    reset({ urgency: 'Medium', due_date: activeDate });
-    setAddTaskOpen(false);
   };
 
   const handleClose = () => {

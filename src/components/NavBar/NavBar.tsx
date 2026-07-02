@@ -32,10 +32,12 @@ export const NavBar = ({ onTabChange }: NavBarProps) => {
       aria-label="Main navigation"
       style={{
         position: 'fixed',
-        bottom: `calc(var(--safe-bottom) + 16px)`,
-        left: 24,
-        right: 24,
-        height: 56,
+        // Sits just above the device's own safe-area inset instead of stacking
+        // extra space on top of it — keeps the bar close to the bottom edge on mobile.
+        bottom: `max(var(--safe-bottom), 8px)`,
+        left: 16,
+        right: 16,
+        height: 52,
         background: 'rgba(44,44,46,0.92)',
         backdropFilter: 'blur(8px)',
         WebkitBackdropFilter: 'blur(8px)',
@@ -60,7 +62,7 @@ export const NavBar = ({ onTabChange }: NavBarProps) => {
             onClick={() => handleTab(tab.id)}
             style={{
               flex: 1,
-              height: 48,
+              height: 44,
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
@@ -71,7 +73,7 @@ export const NavBar = ({ onTabChange }: NavBarProps) => {
               cursor: 'pointer',
               position: 'relative',
               borderRadius: 'var(--radius-pill)',
-              minWidth: 48,
+              minWidth: 44,
             }}
           >
             {isActive && (
@@ -80,7 +82,7 @@ export const NavBar = ({ onTabChange }: NavBarProps) => {
                 transition={{ type: 'spring', stiffness: 300, damping: 28 }}
                 style={{
                   position: 'absolute',
-                  inset: 4,
+                  inset: 3,
                   background: 'var(--color-yellow)',
                   borderRadius: 'var(--radius-pill)',
                   zIndex: 0,
@@ -89,7 +91,7 @@ export const NavBar = ({ onTabChange }: NavBarProps) => {
             )}
             <div style={{ position: 'relative', zIndex: 1 }}>
               <Icon
-                size={22}
+                size={21}
                 strokeWidth={1.75}
                 color={isActive ? 'var(--color-text-dark)' : 'var(--color-grey)'}
               />
